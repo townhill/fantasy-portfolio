@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+:root {
+  --ui-radius: 0.625rem;
+  --ui-container: 90rem;
+}
+
+html {
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  background: var(--ui-bg);
+}
+
+body {
+  min-width: 320px;
+}
+
+button, a, input, select, textarea {
+  outline-offset: 3px;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+}
+
+.surface-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--ui-border) 38%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--ui-border) 38%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

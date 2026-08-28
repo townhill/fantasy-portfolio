@@ -1,0 +1,29 @@
+services:
+  vuag-portfolio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vuag-portfolio
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_PATH: /data/vuag.db
+      NUXT_DATABASE_PATH: /data/vuag.db
+      MARKET_CACHE_TTL_MS: 900000
+      NUXT_MARKET_CACHE_TTL_MS: 900000
+      NUXT_PUBLIC_REFRESH_INTERVAL_MS: 900000
+      DEMO_MODE: "false"
+      NUXT_DEMO_MODE: "false"
+    volumes:
+      - vuag-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  vuag-data:
+    name: vuag-fantasy-portfolio-data
