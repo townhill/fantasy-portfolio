@@ -21,6 +21,7 @@ import {
   taxCalculation,
   transaction
 } from '../database/schema'
+import { londonDate } from '../../shared/utils/dates'
 import { formatGbp } from '../../shared/utils/format'
 import { D, money, precise, ratioPercent } from '../utils/decimal'
 import { createInitialAllocations, valueAccount } from './accounting/portfolio'
@@ -150,7 +151,8 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
   const refreshIntervalMs = Math.max(5, Number(applicationSettings.settings.refresh_interval_minutes ?? 15)) * 60_000
   const db = getDatabase()
   const record = db.select().from(portfolio).limit(1).get()
-  const now = new Date().toISOString()
+  const at = new Date()
+  const now = at.toISOString()
   if (!record || record.status !== 'ACTIVE') {
     return { ...emptySnapshot(now), refreshIntervalMs }
   }
@@ -168,7 +170,7 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
   const totalUnits = rows.reduce((sum, row) => sum.plus(row.units), D(0))
   const cash = settleCash(record.id, cashInterestRate(applicationSettings.settings))
   const currentValue = totalUnits.mul(quote.price).plus(cash.balance)
-  const currentTaxYear = taxYearForDate(now)
+  const currentTaxYear = taxYearForDate(at)
   const { rules, profile } = await getTaxContext(currentTaxYear)
   const valued = rows.map(row => valueAccount({
     id: row.accountId,
@@ -241,7 +243,7 @@ export async function getPerformance(range = 'ALL'): Promise<PerformancePoint[]>
   const from = rangeStart(range, record.startDate, to)
   const prices = await new MarketDataService().getHistory(record.symbol, from, to)
   const entries = db.select().from(transaction)
-    .where(and(eq(transaction.portfolioId, record.id), lte(transaction.date, to.toISOString().slice(0, 10))))
+    .where(and(eq(transaction.portfolioId, record.id), lte(transaction.date, londonDate(to))))
     .orderBy(asc(transaction.date), asc(transaction.id)).all()
   const accounts = db.select().from(account).where(eq(account.portfolioId, record.id)).all()
   const typeById = new Map(accounts.map(item => [item.id, item.type]))
@@ -304,7 +306,7 @@ export async function getLedger(): Promise<LedgerEntry[]> {
     }))
 }
 
-export async function previewBedIsa(requestedAmount?: string, date = new Date().toISOString().slice(0, 10)): Promise<BedIsaPreview> {
+export async function previewBedIsa(requestedAmount?: string, date = londonDate()): Promise<BedIsaPreview> {
   const snapshot = await getPortfolioSnapshot()
   if (!snapshot.initialized || !snapshot.gia || !snapshot.isa || !snapshot.market) throw new Error('Initialize the portfolio before planning Bed & ISA')
   const { rules, profile } = await getTaxContext(taxYearForDate(date))
@@ -324,12 +326,12 @@ export async function previewBedIsa(requestedAmount?: string, date = new Date().
   })
 }
 
-export async function applyBedIsa(requestedAmount?: string, date = new Date().toISOString().slice(0, 10)) {
+export async function applyBedIsa(requestedAmount?: string, date = londonDate()) {
   const applicationSettings = await readSettings()
   if (applicationSettings.settings.bed_isa_enabled !== 'true') {
     throw new Error('Bed & ISA transactions are disabled in Settings')
   }
-  if (date > new Date().toISOString().slice(0, 10)) {
+  if (date > londonDate()) {
     throw new Error('Future Bed & ISA transactions can be projected but cannot be applied using today’s market price')
   }
   const preview = await previewBedIsa(requestedAmount, date)
@@ -473,7 +475,7 @@ export async function takeOutCash(amount: string, note = '') {
   const cash = settleCash(record.id, cashInterestRate(applicationSettings.settings))
   if (!cash.accountId) throw new Error('There is no cash to take out yet. Withdraw from the ISA or GIA to cash first.')
   const cashAccountId = cash.accountId
-  const date = todayIso()
+  const date = londonDate()
   const now = new Date().toISOString()
 
   const balanceAfter = db.transaction(tx => {
@@ -679,7 +681,7 @@ async function prepareWithdrawal(amount: string, accountType: InvestmentAccountT
   const position = investmentAccount ? db.select().from(holding).where(eq(holding.accountId, investmentAccount.id)).get() : undefined
   if (!investmentAccount || !position) throw new Error(`The ${accountType} holding was not found`)
   // Sales use the current quote, so they are always dated today and never backdated.
-  const date = todayIso()
+  const date = londonDate()
   const label = taxYearForDate(date)
   const { rules, profile } = await getTaxContext(label)
   const plan = planWithdrawal({
@@ -710,7 +712,7 @@ async function prepareWithdrawal(amount: string, accountType: InvestmentAccountT
  */
 function settleCash(portfolioId: number, ratePercent: string): CashState {
   const db = getDatabase()
-  const asOf = todayIso()
+  const asOf = londonDate()
   return db.transaction(tx => {
     const cashAccount = tx.select({ id: account.id }).from(account)
       .where(and(eq(account.portfolioId, portfolioId), eq(account.type, 'CASH'))).get()
@@ -785,10 +787,6 @@ function cashInterestRate(settings: Record<string, string>) {
   return settings.cash_interest_rate ?? DEFAULT_SETTINGS.cash_interest_rate
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 function giaUnitsAtDate(portfolioId: number, accountId: number, date: string) {
   const db = getDatabase()
   const entries = db.select().from(transaction).where(and(
@@ -834,7 +832,7 @@ function emptySnapshot(asOf: string): PortfolioSnapshot {
     cashDividends: '0.00',
     unusedCgtExemption: '3000.00',
     remainingDividendAllowance: '500.00',
-    taxYear: taxYearForDate(asOf),
+    taxYear: taxYearForDate(new Date(asOf)),
     taxRulesAssumed: false,
     refreshIntervalMs: 900000
   }
