@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, lte } from 'drizzle-orm'
 import type { MarketQuote, PricePoint } from '../../../shared/types/domain'
+import { londonDate } from '../../../shared/utils/dates'
 import { appSetting, marketPrice } from '../../database/schema'
 import { getDatabase } from '../../database/client'
 import { DemoMarketDataProvider } from './demo'
@@ -89,8 +90,7 @@ export class MarketDataService {
 
   async priceForDate(symbol: string, date: string) {
     const selected = new Date(`${date}T12:00:00Z`)
-    const today = new Date().toISOString().slice(0, 10)
-    if (date === today) {
+    if (date === londonDate()) {
       const quote = await this.getQuote(symbol)
       return { price: quote.price, date, source: quote.source, currentQuote: true }
     }

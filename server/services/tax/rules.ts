@@ -1,4 +1,5 @@
 import type { TaxRules } from '../../../shared/types/domain'
+import { londonDate } from '../../../shared/utils/dates'
 
 export const TAX_RULES_2026_27: TaxRules = {
   taxYear: '2026/27',
@@ -17,8 +18,9 @@ export const TAX_RULES_2026_27: TaxRules = {
   sourceNote: 'Initial 2026/27 assumptions supplied with this fantasy portfolio. Verify against current HMRC guidance.'
 }
 
+/** A string is a stored YYYY-MM-DD date; a Date is an instant, placed on its UK (Europe/London) calendar date. */
 export function taxYearForDate(value: Date | string) {
-  const date = typeof value === 'string' ? new Date(`${value.slice(0, 10)}T12:00:00Z`) : value
+  const date = new Date(`${(typeof value === 'string' ? value : londonDate(value)).slice(0, 10)}T12:00:00Z`)
   const year = date.getUTCFullYear()
   const month = date.getUTCMonth()
   const day = date.getUTCDate()

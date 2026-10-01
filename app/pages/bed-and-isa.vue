@@ -4,7 +4,7 @@ import type { BedIsaPreview, PortfolioSnapshot, ProjectionPoint } from '../../sh
 
 const toast = useToast()
 const amount = ref('20000.00')
-const date = ref(new Date().toISOString().slice(0, 10))
+const date = ref(londonDate())
 const confirmed = ref(false)
 const busy = ref(false)
 const preview = ref<BedIsaPreview | null>(null)
