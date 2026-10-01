@@ -8,23 +8,38 @@ const date = ref(new Date().toISOString().slice(0, 10))
 const confirmed = ref(false)
 const busy = ref(false)
 const preview = ref<BedIsaPreview | null>(null)
+const previewedInput = ref<{ amount: string, date: string } | null>(null)
+// Only the transfer on screen can be applied, so the inputs must still match what was previewed.
+const previewIsCurrent = computed(() => {
+  const value = moneyInput(amount.value)
+  return !!preview.value && !!previewedInput.value && value !== null
+    && Number(value) === Number(previewedInput.value.amount) && date.value === previewedInput.value.date
+})
 const { data: portfolio, refresh: refreshPortfolio } = await useFetch<PortfolioSnapshot>('/api/portfolio')
 const { data: projection } = await useFetch<ProjectionPoint[]>('/api/projection', { method: 'POST', body: { years: 10, annualReturnPercent: '7' } })
 
 async function calculate() {
+  const value = moneyInput(amount.value)
+  if (!value) {
+    toast.add({ title: 'Check the transfer amount', description: 'Enter an amount in pounds and pence, for example 20000.00.', color: 'error' })
+    return
+  }
   busy.value = true
   try {
-    preview.value = await rawFetch<BedIsaPreview>('/api/bed-isa/preview', { method: 'POST', body: { amount: amount.value, date: date.value } })
+    const input = { amount: value, date: date.value }
+    preview.value = await rawFetch<BedIsaPreview>('/api/bed-isa/preview', { method: 'POST', body: input })
+    previewedInput.value = input
   } catch (cause) {
     toast.add({ title: 'Preview unavailable', description: cause instanceof Error ? cause.message : 'Check the inputs.', color: 'error' })
   } finally { busy.value = false }
 }
 
 async function applyTransfer() {
-  if (!confirmed.value) return
+  const previewed = previewedInput.value
+  if (!confirmed.value || !previewed || !previewIsCurrent.value) return
   busy.value = true
   try {
-    await rawFetch('/api/bed-isa/apply', { method: 'POST', body: { amount: amount.value, date: date.value, confirmation: true } })
+    await rawFetch('/api/bed-isa/apply', { method: 'POST', body: { ...previewed, confirmation: true } })
     confirmed.value = false
     await refreshPortfolio()
     await calculate()
@@ -34,6 +49,13 @@ async function applyTransfer() {
   } finally { busy.value = false }
 }
 
+// Number inputs hand back numbers once edited, while the API expects pounds and pence as a string.
+function moneyInput(value: string | number) {
+  const text = String(value ?? '').trim()
+  return /^\d+(\.\d{1,2})?$/.test(text) ? text : null
+}
+
+watch([amount, date], () => { confirmed.value = false })
 onMounted(calculate)
 </script>
 
@@ -78,7 +100,8 @@ onMounted(calculate)
         </CalculationDetails>
         <div class="mt-5 border-t border-default pt-5">
           <UCheckbox v-model="confirmed" label="I understand this records a fantasy GIA disposal and ISA acquisition" />
-          <UButton class="mt-4" color="primary" icon="i-lucide-arrow-left-right" :disabled="!confirmed || !preview" :loading="busy" @click="applyTransfer">Apply to fantasy portfolio</UButton>
+          <p v-if="preview && !previewIsCurrent" class="mt-3 text-xs text-warning">The amount or date has changed since this preview. Select Update preview before applying.</p>
+          <UButton class="mt-4" color="primary" icon="i-lucide-arrow-left-right" :disabled="!confirmed || !previewIsCurrent" :loading="busy" @click="applyTransfer">Apply to fantasy portfolio</UButton>
         </div>
       </UCard>
     </div>

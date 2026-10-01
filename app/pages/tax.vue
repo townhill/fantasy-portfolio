@@ -57,7 +57,8 @@ const form = reactive({
 async function saveEri() {
   saving.value = true
   try {
-    await rawFetch('/api/eri', { method: 'POST', body: form })
+    // The number input hands back a number once edited, while the API validates a decimal string.
+    await rawFetch('/api/eri', { method: 'POST', body: { ...form, eriPerUnit: String(form.eriPerUnit).trim() } })
     await refresh()
     showForm.value = false
     toast.add({ title: 'ERI record saved', description: form.verified ? 'The verified non-cash income was added to the GIA base cost.' : 'The unverified record is stored but not applied.', color: 'success' })
