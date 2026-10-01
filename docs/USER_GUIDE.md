@@ -14,16 +14,17 @@ This guide explains what the tracker does, how to use every screen, and how to i
 5. [Dashboard](#dashboard)
 6. [Performance](#performance)
 7. [Bed & ISA](#bed--isa)
-8. [Tax and Excess Reportable Income](#tax-and-excess-reportable-income)
-9. [Transactions](#transactions)
-10. [Projection](#projection)
-11. [Settings](#settings)
-12. [What changes the portfolio](#what-changes-the-portfolio)
-13. [How the tax estimates work](#how-the-tax-estimates-work)
-14. [Market data and refresh behaviour](#market-data-and-refresh-behaviour)
-15. [Data storage, backup, and restore](#data-storage-backup-and-restore)
-16. [Troubleshooting](#troubleshooting)
-17. [Glossary](#glossary)
+8. [Withdrawals and cash](#withdrawals-and-cash)
+9. [Tax and Excess Reportable Income](#tax-and-excess-reportable-income)
+10. [Transactions](#transactions)
+11. [Projection](#projection)
+12. [Settings](#settings)
+13. [What changes the portfolio](#what-changes-the-portfolio)
+14. [How the tax estimates work](#how-the-tax-estimates-work)
+15. [Market data and refresh behaviour](#market-data-and-refresh-behaviour)
+16. [Data storage, backup, and restore](#data-storage-backup-and-restore)
+17. [Troubleshooting](#troubleshooting)
+18. [Glossary](#glossary)
 
 ## What the tracker models
 
@@ -127,16 +128,18 @@ The Dashboard is the current-state summary.
 
 ### Portfolio value
 
-**Portfolio value** is the current VUAG price multiplied by all units held in the ISA and GIA.
+**Portfolio value** is the current VUAG price multiplied by all units held in the ISA and GIA, plus the cash account balance.
 
 | Figure | Meaning |
 | --- | --- |
 | Initial investment | Total cost of the opening fantasy buys |
-| Current value | Current quote multiplied by all units held |
-| Gain / loss | Current value minus the stored acquisition/base cost |
-| Return | Gain or loss as a percentage of cost |
+| Current value | Current quote multiplied by all units held, plus cash |
+| Cash taken out | Cash taken out of the portfolio to live on |
+| Gain / loss | Current value plus cash taken out, minus the initial investment |
+| Return | Gain or loss as a percentage of the initial investment |
 | Today | Approximate movement using the current quote versus previous close |
-| Today % | Today's movement as a percentage |
+
+Money taken out to live on no longer counts in the current value, but it still counts towards the gain, so a withdrawal is never shown as an investment loss. The percentage beside **Today** is the day's movement as a share of the whole portfolio, including cash.
 
 The market-status line identifies the quote source, timestamp, and whether the quote is normal, stale, or a manual override.
 
@@ -166,6 +169,10 @@ The GIA card shows:
 
 **Potential CGT is not a current tax bill.** It estimates exposure if the entire GIA were disposed at the displayed price using the saved tax profile and rules.
 
+### Cash account card
+
+The cash account card shows the cash balance, the interest rate from Settings, interest accrued so far this month, interest paid in the current tax year, and the total cash taken out to live on. **Withdraw or take out cash** opens the Withdrawals page.
+
 ### Estimated tax exposure card
 
 The large figure is estimated tax crystallised by recorded GIA disposals and verified reportable income. It is different from **Potential CGT**, which is unrealised.
@@ -192,7 +199,7 @@ Select one of the available ranges:
 - `1Y`, `3Y`, or `5Y`; or
 - `ALL`.
 
-The chart separates the ISA, GIA, and combined value. **Period change** compares the first and last available data points in the selected range.
+The chart separates the ISA, GIA, cash account, and combined value. **Period change** compares the first and last available data points in the selected range, adding back any cash taken out to live on during that range so withdrawals are not shown as losses.
 
 This page contains historical market data only. Forecast values from the Projection page are never inserted into this chart.
 
@@ -236,6 +243,41 @@ The app records three linked audit rows:
 - `BED_AND_ISA`, an audit-only summary that does not change holdings a second time.
 
 Future dates can be previewed but cannot be applied using today's quote. Projections never apply transfers automatically.
+
+## Withdrawals and cash
+
+The Withdrawals page models living on the portfolio in two steps:
+
+1. **Withdraw to cash** sells VUAG units from the ISA or GIA and moves the proceeds into a cash account inside the portfolio.
+2. **Take out cash** records money leaving the portfolio to live on.
+
+The cash account is created on the first withdrawal. It earns the **Cash interest rate** from Settings (2% a year by default).
+
+### Withdraw to cash
+
+1. Choose **Sell from**. The ISA is selected by default because ISA sales are tax-free.
+2. Enter the **Amount to withdraw**, up to the current value of that account.
+3. Select **Update preview** and review the units sold, allocated cost, gain, estimated CGT, and balances afterwards.
+4. Tick the confirmation checkbox and select **Withdraw to cash**. The app records exactly the previewed sale; if you change the amount or account afterwards, select **Update preview** again first.
+
+The app records two linked rows that share a group identifier:
+
+- `ISA_SELL` or `GIA_SELL`, which reduces the account's units and allocates its cost proportionally; and
+- `CASH_DEPOSIT`, which adds the proceeds to the cash account.
+
+An ISA sale's gain stays sheltered and has £0 CGT. A GIA sale is a disposal: its gain counts towards the tax year's realised gains and annual exemption. The preview's **Estimated CGT** is the increase in the whole tax year's CGT estimate once this sale is added to earlier disposals, so it can be negative if the sale realises a loss that offsets earlier gains.
+
+Withdrawals always use the current quote and are dated today; they cannot be backdated. Taking money out of the ISA does not give back any of this tax year's ISA allowance.
+
+### Take out cash
+
+Enter an amount up to the cash balance, add an optional note, tick the confirmation checkbox, and select **Take out cash**. The app records a `CASH_WITHDRAWAL` row. The money leaves the current value but still counts towards the Dashboard gain.
+
+### Cash interest
+
+Interest accrues daily at the annual rate ÷ 365 on each day's closing cash balance, and is paid into the cash account on the last day of each month as an `INTEREST` row. Cash added today starts earning from tomorrow. The current month's interest is shown as **accrued** until the month ends.
+
+Interest rows are written the next time portfolio data loads after a month ends (for example on the Dashboard), using the rate in Settings at that time. Saving a new rate first pays any finished months at the old rate, so a new rate applies from the start of the current month. A month that earns nothing, for example at a 0% rate, still counts as settled and is never paid later. Interest on cash held outside an ISA is taxable savings income. The Tax page lists it for each tax year but does not include it in the tax estimates; it is usually covered first by the Personal Savings Allowance.
 
 ## Tax and Excess Reportable Income
 
@@ -285,10 +327,14 @@ The Transactions page is the portfolio audit trail. Use the filter to show all e
 | Type | Meaning |
 | --- | --- |
 | `INITIAL_BUY` | Opening ISA or GIA acquisition |
-| `GIA_SELL` | GIA disposal, normally the sell leg of Bed & ISA |
+| `GIA_SELL` | GIA disposal: the sell leg of Bed & ISA, or a withdrawal to cash |
 | `ISA_BUY` | ISA acquisition, normally the buy leg of Bed & ISA |
+| `ISA_SELL` | ISA sale to fund a withdrawal to cash |
 | `BED_AND_ISA` | Audit-only summary of the two linked legs |
 | `ERI` | Verified ERI base-cost adjustment |
+| `CASH_DEPOSIT` | Withdrawal proceeds credited to the cash account |
+| `INTEREST` | Monthly interest paid on the cash account |
+| `CASH_WITHDRAWAL` | Cash taken out of the portfolio to live on |
 | `TAX_PAYMENT` | Reserved transaction category |
 | `ADJUSTMENT` | Reserved transaction category |
 
@@ -300,7 +346,7 @@ Important columns include:
 - **ERI adjustment**: ERI base cost allocated or added; and
 - **Est. tax**: educational estimate attached to that entry.
 
-Ledger entries are append-only in the current interface. Bed & ISA rows remain separate so the GIA and ISA legs can be audited independently.
+Ledger entries are append-only in the current interface. Bed & ISA rows, and each withdrawal's sale and cash deposit, remain separate so every account can be audited independently. Cash rows show a dash in the units and price columns.
 
 ## Projection
 
@@ -308,18 +354,24 @@ The Projection page is a scenario modeller, not a price forecast.
 
 1. Choose 5, 10, 15, or 20 years.
 2. Choose a preset annual total return or enter a custom percentage.
-3. Select **Model scenario**.
+3. Optionally enter an amount to **Take out each year** to live on, and choose which account to **Sell first from**: the ISA (tax-free, the default) or the GIA.
+4. Select **Model scenario**.
 
 The output shows hypothetical:
 
 - total portfolio value;
-- ISA and GIA values;
+- ISA, GIA, and cash values;
+- the amount taken out each year, and any shortfall;
 - amount progressively sheltered; and
 - cumulative estimated tax.
 
+Yearly withdrawals are taken at the start of each year: the current cash balance is spent first, then the chosen account, then the other account once the chosen one is empty. Cash grows at the cash interest rate. GIA sales for living costs and the annual Bed & ISA transfer share one annual exemption each year. If the portfolio cannot fund the full amount, the page shows the year it runs short and the total shortfall.
+
+Estimated tax is reported separately and is not deducted from the projected values, so choosing the GIA first changes the estimated tax rather than the projected total.
+
 The starting point is labelled **Actual starting point**. Every later row is labelled **Forecast**, and forecast lines are dashed on the chart.
 
-The model compounds the selected return assumption and illustrates annual Bed & ISA transfers using configured/current tax assumptions. It does not predict VUAG prices, market timing, inflation, dealing spreads, platform fees, or future law. It never writes transactions to the ledger.
+The model compounds the selected return assumption and illustrates yearly withdrawals and annual Bed & ISA transfers using configured/current tax assumptions. It does not predict VUAG prices, market timing, inflation, dealing spreads, platform fees, or future law. It never writes transactions to the ledger.
 
 ## Settings
 
@@ -330,6 +382,8 @@ Settings are saved together when you select **Save settings** or **Save all sett
 Before initialization you can configure the start date and opening ISA/GIA amounts. After initialization these fields are locked so saved acquisitions cannot be rewritten.
 
 **Annual Bed & ISA strategy** controls whether transfers can be applied. Disabling it does not remove existing transactions or hide forecast scenarios.
+
+**Cash interest rate** is the annual percentage paid on the cash account, accrued daily and paid monthly. It can be changed at any time: months already finished keep the rate they were paid at, and the new rate applies from the start of the current month.
 
 ### Market data
 
@@ -384,6 +438,10 @@ Future years without their own configured record reuse the latest configured rul
 | Edit tax profile/rules | Tax estimates only | No | No | No |
 | Preview Bed & ISA | Preview only | No | No | No |
 | Apply Bed & ISA | Yes | Yes | Yes | No |
+| Preview a withdrawal | Preview only | No | No | No |
+| Withdraw to cash | Moves value to cash | Yes | Yes | No |
+| Take out cash | Yes | Cash only | Yes | No |
+| Month end passes with cash held | Yes (interest) | Cash only | Yes | No |
 | Save unverified ERI | No | No | No | No |
 | Save verified ERI | Tax/base-cost figures | No units | Yes | Adds an ERI adjustment |
 | Model a projection | No | No | No | No |
@@ -405,6 +463,8 @@ For an actual recorded disposal, the app allocates allowable cost using UK share
 The estimate then combines the portfolio gain with entered wider gains/losses, deducts the available annual exemption, and applies configured CGT rates according to the wider-income profile.
 
 The dashboard's potential CGT uses the same type of calculation for a hypothetical full disposal, but it remains unrealised until a disposal is recorded.
+
+The Bed & ISA and withdrawal previews, and the dashboard's potential CGT, show the **increase** in the tax year's estimated CGT caused by that one disposal, after the gains already realised in the same year. Earlier disposals therefore keep their share of the annual exemption and basic-rate band. The Tax page shows the whole year's total.
 
 ### Reportable income
 
@@ -548,6 +608,8 @@ The expected volume is `vuag-fantasy-portfolio-data`.
 | Annual exemption | Amount of net capital gains covered before CGT in the configured model |
 | Bed & ISA | Selling in a taxable account and buying in an ISA to move value into a sheltered account |
 | Capital gain | Disposal proceeds minus allowable allocated cost |
+| Cash account | Where withdrawal proceeds are held inside the portfolio, earning the interest rate in Settings |
+| Cash taken out | Money taken out of the portfolio to live on; it still counts towards the gain |
 | CGT | Capital Gains Tax |
 | Crystallised/realised gain | Gain created by a recorded disposal, rather than a movement still held |
 | ERI | Excess Reportable Income: potentially taxable non-cash income reported by an offshore reporting fund |

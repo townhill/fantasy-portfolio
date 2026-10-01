@@ -31,6 +31,13 @@ const screens = [
     note: 'Only Apply to fantasy portfolio changes holdings.'
   },
   {
+    title: 'Withdrawals',
+    to: '/withdrawals',
+    icon: 'i-lucide-hand-coins',
+    description: 'Sell from the ISA (tax-free, the default) or the GIA into an interest-earning cash account, then take cash out to live on.',
+    note: 'GIA sales crystallise a gain; ISA sales never incur CGT.'
+  },
+  {
     title: 'Tax',
     to: '/tax',
     icon: 'i-lucide-landmark',
@@ -41,14 +48,14 @@ const screens = [
     title: 'Transactions',
     to: '/transactions',
     icon: 'i-lucide-receipt-text',
-    description: 'An append-only audit trail of opening buys, transfers, disposals, and ERI adjustments.',
+    description: 'An append-only audit trail of opening buys, transfers, disposals, ERI adjustments, and cash movements.',
     note: 'Bed & ISA legs remain separate so both accounts can be audited.'
   },
   {
     title: 'Projection',
     to: '/projection',
     icon: 'i-lucide-telescope',
-    description: 'Explore 5–20 year scenarios using a return assumption and illustrative annual sheltering.',
+    description: 'Explore 5–20 year scenarios using a return assumption, yearly withdrawals to live on, and illustrative annual sheltering.',
     note: 'Forecasts never create transactions or predict VUAG prices.'
   },
   {
@@ -63,6 +70,7 @@ const screens = [
 const glossary = [
   ['Adjusted CGT base', 'Original allowable cost plus verified ERI adjustments.'],
   ['Bed & ISA', 'A GIA sale followed by an ISA purchase to move value into a sheltered account.'],
+  ['Cash account', 'Where withdrawal proceeds are held. It earns the interest rate in Settings, paid monthly.'],
   ['CGT', 'Capital Gains Tax.'],
   ['ERI', 'Excess Reportable Income: potentially taxable non-cash income reported by an offshore fund.'],
   ['GIA', 'General Investment Account; treated as taxable by this tracker.'],
@@ -157,9 +165,9 @@ const glossary = [
           <table class="w-full min-w-[760px] text-left text-sm">
             <thead class="border-b border-default bg-elevated/50 text-xs text-muted"><tr><th class="px-5 py-3 font-medium">Figure</th><th class="px-5 py-3 font-medium">What it means</th><th class="px-5 py-3 font-medium">What changes it</th></tr></thead>
             <tbody class="divide-y divide-default">
-              <tr><td class="px-5 py-4 font-medium">Current value</td><td class="px-5 py-4 text-muted">Current VUAG quote × all units held.</td><td class="px-5 py-4 text-muted">Quote movement or an applied transfer.</td></tr>
-              <tr><td class="px-5 py-4 font-medium">Gain / loss</td><td class="px-5 py-4 text-muted">Current value compared with recorded cost.</td><td class="px-5 py-4 text-muted">Quote movement, disposal, or verified ERI adjustment.</td></tr>
-              <tr><td class="px-5 py-4 font-medium">Tax due now</td><td class="px-5 py-4 text-muted">Estimate from recorded GIA disposals and verified reportable income.</td><td class="px-5 py-4 text-muted">Applied Bed & ISA, ERI, profile, or tax rules.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">Current value</td><td class="px-5 py-4 text-muted">Current VUAG quote × all units held, plus the cash account balance.</td><td class="px-5 py-4 text-muted">Quote movement, cash interest, or cash taken out to live on.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">Gain / loss</td><td class="px-5 py-4 text-muted">Current value plus cash taken out, minus the initial investment.</td><td class="px-5 py-4 text-muted">Quote movement or cash interest. Withdrawals and cash taken out do not change it.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">Tax due now</td><td class="px-5 py-4 text-muted">Estimate from recorded GIA disposals and verified reportable income.</td><td class="px-5 py-4 text-muted">Applied Bed & ISA, GIA withdrawals, ERI, profile, or tax rules.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Potential CGT</td><td class="px-5 py-4 text-muted">Hypothetical exposure if the full GIA were sold at the displayed price.</td><td class="px-5 py-4 text-muted">Quote, GIA base cost, profile, or rules. It is not automatically due.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Today</td><td class="px-5 py-4 text-muted">Approximate movement from previous close to the current quote.</td><td class="px-5 py-4 text-muted">Market quote only.</td></tr>
             </tbody>
@@ -260,6 +268,10 @@ const glossary = [
               <tr><td class="px-5 py-4 font-medium">Save settings</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">Recalculates estimates; never rewrites opening units.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Preview Bed & ISA</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">Safe to explore repeatedly.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Apply Bed & ISA</td><td class="px-5 py-4 font-medium text-warning">Yes</td><td class="px-5 py-4 font-medium text-warning">Yes</td><td class="px-5 py-4 text-muted">Records linked GIA sale, ISA buy, and audit summary.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">Preview a withdrawal</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">Safe to explore repeatedly.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">Withdraw to cash</td><td class="px-5 py-4 font-medium text-warning">Yes</td><td class="px-5 py-4 font-medium text-warning">Yes</td><td class="px-5 py-4 text-muted">Records a linked ISA or GIA sale and cash deposit.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">Take out cash</td><td class="px-5 py-4 text-muted">Cash only</td><td class="px-5 py-4 font-medium text-warning">Yes</td><td class="px-5 py-4 text-muted">Records money leaving the portfolio to live on.</td></tr>
+              <tr><td class="px-5 py-4 font-medium">View portfolio pages after a month ends</td><td class="px-5 py-4 text-muted">Cash only</td><td class="px-5 py-4 text-muted">Interest only</td><td class="px-5 py-4 text-muted">Pays outstanding monthly cash interest at the current rate. Saving a new rate pays finished months at the old rate first.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Save unverified ERI</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">Stored for reference but not applied.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Save verified ERI</td><td class="px-5 py-4 text-muted">No units</td><td class="px-5 py-4 font-medium text-warning">Yes</td><td class="px-5 py-4 text-muted">Adds a base-cost adjustment and reportable income.</td></tr>
               <tr><td class="px-5 py-4 font-medium">Model projection</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">No</td><td class="px-5 py-4 text-muted">Forecast only.</td></tr>

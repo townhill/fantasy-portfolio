@@ -17,7 +17,7 @@ const option = computed(() => {
   const grid = dark ? '#1e293b' : '#e2e8f0'
   return {
     animationDuration: 300,
-    color: ['#2f9e74', '#3b82f6', '#8b5cf6'],
+    color: ['#2f9e74', '#3b82f6', '#8b5cf6', '#f59e0b'],
     grid: { left: 12, right: 12, top: 52, bottom: 28, containLabel: true },
     legend: { top: 2, right: 0, textStyle: { color: text }, icon: 'roundRect', itemWidth: 18, itemHeight: 3 },
     tooltip: {
@@ -67,12 +67,16 @@ const option = computed(() => {
         }
       },
       { name: 'ISA', type: 'line', data: props.points.map(point => Number(point.isa)), showSymbol: false, smooth: false, lineStyle: { width: 1.5 } },
-      { name: 'GIA', type: 'line', data: props.points.map(point => Number(point.gia)), showSymbol: false, smooth: false, lineStyle: { width: 1.5 } }
+      { name: 'GIA', type: 'line', data: props.points.map(point => Number(point.gia)), showSymbol: false, smooth: false, lineStyle: { width: 1.5 } },
+      { name: 'Cash', type: 'line', data: props.points.map(point => Number(point.cash)), showSymbol: false, smooth: false, lineStyle: { width: 1.5 } }
     ]
   }
 })
 </script>
 
 <template>
-  <VChart :option="option" autoresize class="h-[380px] w-full" aria-label="VUAG portfolio performance chart" />
+  <!-- vue-echarts styles its element at height: 100%, so the fixed height lives on a wrapper. -->
+  <div class="h-[380px] w-full">
+    <VChart :option="option" autoresize aria-label="VUAG portfolio performance chart" />
+  </div>
 </template>

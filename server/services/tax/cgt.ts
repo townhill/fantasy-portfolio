@@ -48,6 +48,39 @@ export function calculateCgt(input: CgtInput): CgtResult {
   }
 }
 
+/**
+ * The change in a tax year's CGT caused by one more gain on top of the gains already realised that
+ * year, so earlier disposals keep their share of the annual exemption and basic-rate band. Each field
+ * is the difference this gain makes, except annualExemptionAvailable, which is what was left before it.
+ * A loss that offsets earlier gains gives a negative estimate.
+ */
+export function calculateMarginalCgt(input: {
+  realisedGain: string
+  realisedGainsThisYear: string
+  profile: TaxProfileInput
+  rules: TaxRules
+}): CgtResult {
+  const before = calculateCgt({ realisedGain: input.realisedGainsThisYear, profile: input.profile, rules: input.rules })
+  const after = calculateCgt({
+    realisedGain: money(D(input.realisedGainsThisYear).plus(input.realisedGain)),
+    profile: input.profile,
+    rules: input.rules
+  })
+  const change = (key: keyof CgtResult) => money(D(after[key]).minus(before[key]))
+  return {
+    realisedGain: money(input.realisedGain),
+    netGainBeforeExemption: change('netGainBeforeExemption'),
+    annualExemptionAvailable: money(D(before.annualExemptionAvailable).minus(before.annualExemptionUsed)),
+    annualExemptionUsed: change('annualExemptionUsed'),
+    taxableGain: change('taxableGain'),
+    basicRateGain: change('basicRateGain'),
+    higherRateGain: change('higherRateGain'),
+    basicRateTax: change('basicRateTax'),
+    higherRateTax: change('higherRateTax'),
+    estimatedCgt: change('estimatedCgt')
+  }
+}
+
 function DecimalMin(a: ReturnType<typeof D>, b: ReturnType<typeof D> | string | number) {
   const right = D(b)
   return a.lt(right) ? a : right

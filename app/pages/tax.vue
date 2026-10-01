@@ -18,6 +18,7 @@ interface TaxYearSummary {
   dividendAllowanceUsed: string
   estimatedIncomeTax: string
   totalEstimatedTax: string
+  cashInterest: string
   cgt: Record<string, string>
   income: Record<string, string>
 }
@@ -101,7 +102,7 @@ async function saveEri() {
           <UBadge v-if="!year.confirmedRules" class="mb-4" color="warning" variant="subtle">Projection using current tax assumptions</UBadge>
           <div class="grid gap-6 lg:grid-cols-2">
             <div><h3 class="text-sm font-semibold">Capital gains</h3><div class="mt-2"><MetricRow label="GIA disposal proceeds" :value="formatGbp(year.disposalProceeds)" /><MetricRow label="Realised gains" :value="formatGbp(year.realisedGains)" /><MetricRow label="Capital losses" :value="formatGbp(year.capitalLosses)" /><MetricRow label="Net gain" :value="formatGbp(year.netGain)" /><MetricRow label="Annual exemption used" :value="formatGbp(year.annualExemptionUsed)" /><MetricRow label="Taxable capital gain" :value="formatGbp(year.taxableCapitalGain)" /><MetricRow label="Estimated CGT" :value="formatGbp(year.estimatedCgt)" /></div></div>
-            <div><h3 class="text-sm font-semibold">Reportable income</h3><div class="mt-2"><MetricRow label="VUAG ERI" :value="formatGbp(year.vuagEri)" hint="Verified Excess Reportable Income only; this is non-cash income for the accumulating fund." /><MetricRow label="Other dividend income" :value="formatGbp(year.otherReportableIncome)" /><MetricRow label="Dividend allowance used" :value="formatGbp(year.dividendAllowanceUsed)" /><MetricRow label="Estimated income tax" :value="formatGbp(year.estimatedIncomeTax)" /><MetricRow label="Cash VUAG dividends" value="£0.00" /></div></div>
+            <div><h3 class="text-sm font-semibold">Reportable income</h3><div class="mt-2"><MetricRow label="VUAG ERI" :value="formatGbp(year.vuagEri)" hint="Verified Excess Reportable Income only; this is non-cash income for the accumulating fund." /><MetricRow label="Other dividend income" :value="formatGbp(year.otherReportableIncome)" /><MetricRow label="Dividend allowance used" :value="formatGbp(year.dividendAllowanceUsed)" /><MetricRow label="Estimated income tax" :value="formatGbp(year.estimatedIncomeTax)" /><MetricRow label="Cash VUAG dividends" value="£0.00" /><MetricRow label="Cash account interest" :value="formatGbp(year.cashInterest)" hint="Interest paid on the cash account. It is taxable savings income outside an ISA, usually covered first by the Personal Savings Allowance, and is not included in these estimates." /></div></div>
           </div>
           <CalculationDetails title="Show tax-engine workings">The CGT engine deducts entered capital losses and the available annual exemption, then applies 18% within the remaining basic-rate band and 24% above it. Verified ERI is treated as potentially taxable reportable income, uses the available dividend allowance, and is also added to the GIA base cost to prevent double taxation. {{ year.sourceNote }}</CalculationDetails>
         </div>

@@ -1,14 +1,19 @@
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm'
 import type {
   BedIsaPreview,
+  CashSnapshot,
+  InvestmentAccountType,
   LedgerEntry,
   PerformancePoint,
   PortfolioSnapshot,
-  ProjectionPoint
+  ProjectionPoint,
+  TransactionType,
+  WithdrawalPreview
 } from '../../shared/types/domain'
 import { getDatabase } from '../database/client'
 import {
   account,
+  appSetting,
   eriRecord,
   holding,
   marketPrice,
@@ -16,18 +21,32 @@ import {
   taxCalculation,
   transaction
 } from '../database/schema'
+import { formatGbp } from '../../shared/utils/format'
 import { D, money, precise, ratioPercent } from '../utils/decimal'
 import { createInitialAllocations, valueAccount } from './accounting/portfolio'
 import { planBedAndIsa } from './bed-isa/planner'
+import { calculateInterest, cashBalance, cashMovement, lastCompletedMonth, monthAfter, type CashMovement } from './cash/interest'
 import { MarketDataService } from './market/service'
 import { projectPortfolio } from './projection/projector'
-import { ensureApplicationDefaults, getTaxContext, readSettings } from './settings'
-import { calculateCgt } from './tax/cgt'
+import { DEFAULT_SETTINGS, ensureApplicationDefaults, getTaxContext, readSettings } from './settings'
+import { calculateCgt, calculateMarginalCgt } from './tax/cgt'
 import { calculateEri } from './tax/eri'
 import { calculateReportableIncomeTax } from './tax/income'
 import { taxYearForDate } from './tax/rules'
+import { planWithdrawal } from './withdrawal/planner'
 
 const SYMBOL = 'VUAG.L'
+const CASH_SYMBOL = 'GBP'
+const CASH_INTEREST_SETTLED_KEY = 'cash_interest_settled_through'
+
+interface CashState {
+  accountId: number | null
+  ratePercent: string
+  entries: Array<{ type: TransactionType, date: string, grossValue: string }>
+  movements: CashMovement[]
+  balance: string
+  accruedInterest: string
+}
 
 export async function setupPreview(startDate?: string, manualPrice?: string) {
   await ensureApplicationDefaults()
@@ -145,8 +164,10 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
     eriAdjustment: holding.eriAdjustment
   }).from(holding).innerJoin(account, eq(holding.accountId, account.id))
     .where(eq(account.portfolioId, record.id)).all()
+    .filter((row): row is typeof row & { type: InvestmentAccountType } => row.type !== 'CASH')
   const totalUnits = rows.reduce((sum, row) => sum.plus(row.units), D(0))
-  const currentValue = totalUnits.mul(quote.price)
+  const cash = settleCash(record.id, cashInterestRate(applicationSettings.settings))
+  const currentValue = totalUnits.mul(quote.price).plus(cash.balance)
   const currentTaxYear = taxYearForDate(now)
   const { rules, profile } = await getTaxContext(currentTaxYear)
   const valued = rows.map(row => valueAccount({
@@ -160,13 +181,16 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
   }))
   const isa = valued.find(item => item.type === 'ISA') ?? null
   const gia = valued.find(item => item.type === 'GIA') ?? null
-  const gain = currentValue.minus(record.initialInvestment)
+  const cashSummary = summariseCash(cash, currentTaxYear, currentValue)
+  // Cash taken out to live on has left the portfolio but is still part of its return.
+  const gain = currentValue.plus(cashSummary.totalTakenOut).minus(record.initialInvestment)
   const todayChange = quote.previousClose ? totalUnits.mul(D(quote.price).minus(quote.previousClose)) : D(0)
-  const potentialCgt = gia ? calculateCgt({
+  const realisedGain = await realisedGainForYear(record.id, currentTaxYear)
+  const potentialCgt = gia ? calculateMarginalCgt({
     realisedGain: gia.gainLoss,
+    realisedGainsThisYear: realisedGain.toString(),
     profile,
-    rules,
-    exemptionAlreadyUsed: await cgtExemptionUsed(record.id, currentTaxYear, rules.cgtAnnualExemption)
+    rules
   }) : null
 
   const verifiedEri = db.select().from(eriRecord).where(and(
@@ -175,7 +199,6 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
   )).all().filter(item => taxYearForDate(item.fundDistributionDate) === currentTaxYear)
   const reportableIncome = verifiedEri.reduce((sum, item) => sum.plus(item.totalAmount), D(0))
   const incomeTax = calculateReportableIncomeTax(reportableIncome.toString(), profile, rules)
-  const realisedGain = await realisedGainForYear(record.id, currentTaxYear)
   const actualCgt = calculateCgt({ realisedGain: realisedGain.toString(), profile, rules })
   const estimatedTaxDueNow = D(actualCgt.estimatedCgt).plus(incomeTax.estimatedIncomeTax)
 
@@ -188,9 +211,10 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
     totalGainLoss: money(gain),
     totalGainLossPercent: ratioPercent(gain, record.initialInvestment),
     todayChange: money(todayChange),
-    todayChangePercent: quote.previousClose ? ratioPercent(D(quote.price).minus(quote.previousClose), quote.previousClose) : '0.0000',
+    todayChangePercent: ratioPercent(todayChange, currentValue.minus(todayChange)),
     isa,
     gia,
+    cash: cashSummary,
     market: quote,
     potentialCgt,
     incomeTax,
@@ -208,10 +232,11 @@ export async function getPortfolioSnapshot(forceMarketRefresh = false): Promise<
 }
 
 export async function getPerformance(range = 'ALL'): Promise<PerformancePoint[]> {
-  await ensureApplicationDefaults()
+  const applicationSettings = await readSettings()
   const db = getDatabase()
   const record = db.select().from(portfolio).limit(1).get()
   if (!record || record.status !== 'ACTIVE') return []
+  const cash = settleCash(record.id, cashInterestRate(applicationSettings.settings))
   const to = new Date()
   const from = rangeStart(range, record.startDate, to)
   const prices = await new MarketDataService().getHistory(record.symbol, from, to)
@@ -231,26 +256,34 @@ export async function getPerformance(range = 'ALL'): Promise<PerformancePoint[]>
         if (type === 'GIA') giaUnits = giaUnits.plus(entry.units)
       } else if (entry.type === 'GIA_SELL' && type === 'GIA') {
         giaUnits = giaUnits.minus(entry.units)
+      } else if (entry.type === 'ISA_SELL' && type === 'ISA') {
+        isaUnits = isaUnits.minus(entry.units)
       }
     }
     const isaValue = isaUnits.mul(point.price)
     const giaValue = giaUnits.mul(point.price)
+    const cashValue = cashBalance(cash.movements, point.date)
+    const takenOut = cash.entries.filter(entry => entry.type === 'CASH_WITHDRAWAL' && entry.date <= point.date)
+      .reduce((sum, entry) => sum.plus(entry.grossValue), D(0))
     return {
       date: point.date,
       price: point.price,
-      total: money(isaValue.plus(giaValue)),
+      total: money(isaValue.plus(giaValue).plus(cashValue)),
       isa: money(isaValue),
       gia: money(giaValue),
+      cash: cashValue,
+      takenOut: money(takenOut),
       historical: true
     }
   })
 }
 
 export async function getLedger(): Promise<LedgerEntry[]> {
-  await ensureApplicationDefaults()
+  const applicationSettings = await readSettings()
   const db = getDatabase()
   const record = db.select().from(portfolio).limit(1).get()
   if (!record) return []
+  settleCash(record.id, cashInterestRate(applicationSettings.settings))
   const accounts = db.select().from(account).where(eq(account.portfolioId, record.id)).all()
   const typeById = new Map(accounts.map(item => [item.id, item.type]))
   return db.select().from(transaction).where(eq(transaction.portfolioId, record.id))
@@ -287,7 +320,7 @@ export async function previewBedIsa(requestedAmount?: string, date = new Date().
     portfolioIsaAllowanceUsed: portfolioIsaAllowanceUsed.toString(),
     profile,
     rules,
-    exemptionAlreadyUsed: await cgtExemptionUsed(snapshot.portfolioId!, taxYearForDate(date), rules.cgtAnnualExemption)
+    realisedGainsThisYear: (await realisedGainForYear(snapshot.portfolioId!, taxYearForDate(date))).toString()
   })
 }
 
@@ -364,6 +397,100 @@ export async function applyBedIsa(requestedAmount?: string, date = new Date().to
   return { applied: true, groupId, preview }
 }
 
+export async function previewWithdrawal(amount: string, accountType: InvestmentAccountType = 'ISA'): Promise<WithdrawalPreview> {
+  return (await prepareWithdrawal(amount, accountType)).preview
+}
+
+export async function applyWithdrawal(amount: string, accountType: InvestmentAccountType = 'ISA') {
+  const { preview, record, investmentAccountId, position } = await prepareWithdrawal(amount, accountType)
+  const db = getDatabase()
+  const groupId = crypto.randomUUID()
+  const now = new Date().toISOString()
+
+  db.transaction(tx => {
+    const current = tx.select().from(holding).where(eq(holding.id, position.id)).get()
+    if (!current || current.units !== position.units) {
+      throw new Error('The holding changed while this withdrawal was being prepared; preview it again')
+    }
+    tx.update(holding).set({
+      units: precise(D(current.units).minus(preview.unitsToSell)),
+      originalCost: money(D(current.originalCost).minus(preview.originalCostSold)),
+      eriAdjustment: money(D(current.eriAdjustment).minus(preview.eriAdjustmentSold)),
+      updatedAt: now
+    }).where(eq(holding.id, current.id)).run()
+
+    const existingCash = tx.select({ id: account.id }).from(account)
+      .where(and(eq(account.portfolioId, record.id), eq(account.type, 'CASH'))).get()
+    const cashAccountId = existingCash?.id ?? tx.insert(account).values({
+      portfolioId: record.id,
+      type: 'CASH',
+      name: 'Cash account',
+      createdAt: now
+    }).returning({ id: account.id }).get().id
+
+    tx.insert(transaction).values([
+      {
+        portfolioId: record.id, accountId: investmentAccountId, date: preview.date,
+        type: accountType === 'ISA' ? 'ISA_SELL' as const : 'GIA_SELL' as const, symbol: record.symbol,
+        units: preview.unitsToSell, price: preview.price, grossValue: preview.proceeds,
+        costBasis: preview.allocatedCost, realisedGain: preview.gain, eriAdjustment: preview.eriAdjustmentSold,
+        estimatedTax: accountType === 'GIA' ? preview.estimatedCgt : '0.00',
+        notes: accountType === 'ISA'
+          ? 'ISA sale to fund a cash withdrawal. The gain is sheltered inside the ISA and no CGT applies.'
+          : 'GIA disposal to fund a cash withdrawal. The gain is crystallised for CGT.',
+        groupId, createdAt: now
+      },
+      {
+        portfolioId: record.id, accountId: cashAccountId, date: preview.date, type: 'CASH_DEPOSIT' as const,
+        symbol: CASH_SYMBOL, units: '0', price: '0', grossValue: preview.proceeds, costBasis: '0.00',
+        realisedGain: '0.00', eriAdjustment: '0.00', estimatedTax: '0.00',
+        notes: `Proceeds of the linked ${accountType} sale credited to the cash account.`,
+        groupId, createdAt: now
+      }
+    ]).run()
+
+    if (accountType === 'GIA') {
+      tx.insert(taxCalculation).values({
+        portfolioId: record.id,
+        taxYear: taxYearForDate(preview.date),
+        calculationType: 'WITHDRAWAL',
+        inputJson: JSON.stringify({ amount, account: accountType, date: preview.date, price: preview.price }),
+        resultJson: JSON.stringify(preview),
+        createdAt: now
+      }).run()
+    }
+  })
+  return { applied: true, groupId, preview }
+}
+
+export async function takeOutCash(amount: string, note = '') {
+  const applicationSettings = await readSettings()
+  const db = getDatabase()
+  const record = db.select().from(portfolio).limit(1).get()
+  if (!record || record.status !== 'ACTIVE') throw new Error('Initialize the portfolio before taking out cash')
+  const requested = D(amount)
+  if (requested.lte(0)) throw new Error('Enter an amount greater than £0')
+  const cash = settleCash(record.id, cashInterestRate(applicationSettings.settings))
+  if (!cash.accountId) throw new Error('There is no cash to take out yet. Withdraw from the ISA or GIA to cash first.')
+  const cashAccountId = cash.accountId
+  const date = todayIso()
+  const now = new Date().toISOString()
+
+  const balanceAfter = db.transaction(tx => {
+    const balance = cashBalance(toCashMovements(tx.select().from(transaction).where(eq(transaction.accountId, cashAccountId)).all()))
+    if (requested.gt(balance)) throw new Error(`The cash account holds ${formatGbp(balance)}; enter that amount or less`)
+    tx.insert(transaction).values({
+      portfolioId: record.id, accountId: cashAccountId, date, type: 'CASH_WITHDRAWAL', symbol: CASH_SYMBOL,
+      units: '0', price: '0', grossValue: money(requested), costBasis: '0.00', realisedGain: '0.00',
+      eriAdjustment: '0.00', estimatedTax: '0.00',
+      notes: note.trim() ? `Cash taken out to live on: ${note.trim()}` : 'Cash taken out to live on.',
+      createdAt: now
+    }).run()
+    return money(D(balance).minus(requested))
+  })
+  return { takenOut: money(requested), balanceAfter }
+}
+
 export async function addEriRecord(input: {
   reportingPeriodStart: string
   reportingPeriodEnd: string
@@ -434,10 +561,11 @@ export async function addEriRecord(input: {
 }
 
 export async function getTaxYearSummary() {
-  await ensureApplicationDefaults()
+  const applicationSettings = await readSettings()
   const db = getDatabase()
   const record = db.select().from(portfolio).limit(1).get()
   if (!record) return []
+  settleCash(record.id, cashInterestRate(applicationSettings.settings))
   const entries = db.select().from(transaction).where(eq(transaction.portfolioId, record.id)).all()
   const eri = db.select().from(eriRecord).where(eq(eriRecord.portfolioId, record.id)).all()
   const labels = new Set<string>([taxYearForDate(new Date()), ...entries.map(item => taxYearForDate(item.date)), ...eri.map(item => taxYearForDate(item.fundDistributionDate))])
@@ -450,6 +578,8 @@ export async function getTaxYearSummary() {
     const eriAmount = eri.filter(item => item.verified && taxYearForDate(item.fundDistributionDate) === label)
       .reduce((sum, item) => sum.plus(item.totalAmount), D(0))
     const income = calculateReportableIncomeTax(eriAmount.toString(), profile, rules)
+    const cashInterest = entries.filter(item => item.type === 'INTEREST' && taxYearForDate(item.date) === label)
+      .reduce((sum, item) => sum.plus(item.grossValue), D(0))
     output.push({
       taxYear: label,
       confirmedRules: rules.confirmed,
@@ -467,6 +597,7 @@ export async function getTaxYearSummary() {
       dividendAllowanceUsed: income.dividendAllowanceUsed,
       estimatedIncomeTax: income.estimatedIncomeTax,
       totalEstimatedTax: money(D(cgt.estimatedCgt).plus(income.estimatedIncomeTax)),
+      cashInterest: money(cashInterest),
       cgt,
       income
     })
@@ -474,7 +605,12 @@ export async function getTaxYearSummary() {
   return output
 }
 
-export async function getProjection(years: number, annualReturnPercent: string): Promise<ProjectionPoint[]> {
+export async function getProjection(
+  years: number,
+  annualReturnPercent: string,
+  annualWithdrawal = '0',
+  withdrawFrom: InvestmentAccountType = 'ISA'
+): Promise<ProjectionPoint[]> {
   const snapshot = await getPortfolioSnapshot()
   if (!snapshot.initialized || !snapshot.isa || !snapshot.gia) return []
   const { rules, profile } = await getTaxContext(snapshot.taxYear)
@@ -484,6 +620,10 @@ export async function getProjection(years: number, annualReturnPercent: string):
     startingIsaValue: snapshot.isa.value,
     startingGiaValue: snapshot.gia.value,
     startingGiaBaseCost: snapshot.gia.adjustedBaseCost,
+    startingCash: snapshot.cash?.balance ?? '0',
+    cashInterestPercent: snapshot.cash?.interestRatePercent ?? DEFAULT_SETTINGS.cash_interest_rate,
+    annualWithdrawal,
+    withdrawFrom,
     rules,
     profile,
     startYear: new Date().getUTCFullYear()
@@ -521,9 +661,132 @@ async function isaContributionsForYear(portfolioId: number, label: string) {
     .reduce((sum, item) => sum.plus(item.grossValue), D(0))
 }
 
-async function cgtExemptionUsed(portfolioId: number, label: string, exemption: string) {
-  const realised = await realisedGainForYear(portfolioId, label)
-  return money(DecimalMin(DecimalMax(realised, D(0)), D(exemption)))
+/** Pays any finished months at the stored rate, so a new rate only applies from the current month. */
+export async function settleCashInterest() {
+  const applicationSettings = await readSettings()
+  const record = getDatabase().select().from(portfolio).limit(1).get()
+  if (record?.status === 'ACTIVE') settleCash(record.id, cashInterestRate(applicationSettings.settings))
+}
+
+async function prepareWithdrawal(amount: string, accountType: InvestmentAccountType) {
+  const snapshot = await getPortfolioSnapshot()
+  if (!snapshot.initialized || !snapshot.market) throw new Error('Initialize the portfolio before withdrawing to cash')
+  const db = getDatabase()
+  const record = db.select().from(portfolio).limit(1).get()
+  if (!record) throw new Error('Portfolio not found')
+  const investmentAccount = db.select().from(account)
+    .where(and(eq(account.portfolioId, record.id), eq(account.type, accountType))).get()
+  const position = investmentAccount ? db.select().from(holding).where(eq(holding.accountId, investmentAccount.id)).get() : undefined
+  if (!investmentAccount || !position) throw new Error(`The ${accountType} holding was not found`)
+  // Sales use the current quote, so they are always dated today and never backdated.
+  const date = todayIso()
+  const label = taxYearForDate(date)
+  const { rules, profile } = await getTaxContext(label)
+  const plan = planWithdrawal({
+    date,
+    account: accountType,
+    amount,
+    price: snapshot.market.price,
+    units: position.units,
+    originalCost: position.originalCost,
+    eriAdjustment: position.eriAdjustment,
+    cashBalance: snapshot.cash?.balance ?? '0',
+    realisedGainsThisYear: (await realisedGainForYear(record.id, label)).toString(),
+    profile,
+    rules
+  })
+  return {
+    preview: { ...plan, priceStale: snapshot.market.stale, manualPrice: snapshot.market.manual },
+    record,
+    investmentAccountId: investmentAccount.id,
+    position
+  }
+}
+
+/**
+ * Posts monthly interest for every completed month that has not been paid yet, then returns the cash
+ * account's movements and balance. Postings are written lazily when the portfolio is read, and each
+ * month uses the rate in Settings at the time it is settled.
+ */
+function settleCash(portfolioId: number, ratePercent: string): CashState {
+  const db = getDatabase()
+  const asOf = todayIso()
+  return db.transaction(tx => {
+    const cashAccount = tx.select({ id: account.id }).from(account)
+      .where(and(eq(account.portfolioId, portfolioId), eq(account.type, 'CASH'))).get()
+    if (!cashAccount) {
+      return { accountId: null, ratePercent, entries: [], movements: [], balance: '0.00', accruedInterest: '0.00' }
+    }
+    const rows = tx.select().from(transaction).where(eq(transaction.accountId, cashAccount.id))
+      .orderBy(asc(transaction.date), asc(transaction.id)).all()
+    const entries = rows.map(row => ({ type: row.type, date: row.date, grossValue: row.grossValue }))
+    const movements = toCashMovements(entries)
+    const firstMovement = movements[0]
+    if (!firstMovement) {
+      return { accountId: cashAccount.id, ratePercent, entries, movements, balance: '0.00', accruedInterest: '0.00' }
+    }
+    // Settlement progress is tracked separately from INTEREST rows because a month can settle at £0
+    // (a 0% rate or no cash held) and must not be paid again later at a different rate.
+    const settledThrough = tx.select({ value: appSetting.value }).from(appSetting)
+      .where(eq(appSetting.key, CASH_INTEREST_SETTLED_KEY)).get()?.value
+      ?? entries.filter(entry => entry.type === 'INTEREST').at(-1)?.date.slice(0, 7)
+    const fromMonth = settledThrough ? monthAfter(settledThrough) : firstMovement.date.slice(0, 7)
+    const { postings, accruedThisMonth } = calculateInterest({ movements, annualRatePercent: ratePercent, fromMonth, asOf })
+    const now = new Date().toISOString()
+    const completedThrough = lastCompletedMonth(asOf)
+    if (fromMonth <= completedThrough) {
+      tx.insert(appSetting).values({ key: CASH_INTEREST_SETTLED_KEY, value: completedThrough, updatedAt: now })
+        .onConflictDoUpdate({ target: appSetting.key, set: { value: completedThrough, updatedAt: now } }).run()
+    }
+    for (const posting of postings) {
+      tx.insert(transaction).values({
+        portfolioId, accountId: cashAccount.id, date: posting.date, type: 'INTEREST', symbol: CASH_SYMBOL,
+        units: '0', price: '0', grossValue: posting.amount, costBasis: '0.00', realisedGain: '0.00',
+        eriAdjustment: '0.00', estimatedTax: '0.00',
+        notes: `Interest for ${posting.month} at ${D(ratePercent).toFixed(2)}% a year, accrued daily on the cash balance and paid monthly.`,
+        createdAt: now
+      }).run()
+      entries.push({ type: 'INTEREST', date: posting.date, grossValue: posting.amount })
+    }
+    const settled = postings.length ? toCashMovements(entries) : movements
+    return {
+      accountId: cashAccount.id,
+      ratePercent,
+      entries,
+      movements: settled,
+      balance: cashBalance(settled),
+      accruedInterest: accruedThisMonth
+    }
+  })
+}
+
+function summariseCash(cash: CashState, taxYearLabel: string, totalPortfolioValue: ReturnType<typeof D>): CashSnapshot {
+  const total = (type: TransactionType, include: (date: string) => boolean = () => true) => money(cash.entries
+    .filter(entry => entry.type === type && include(entry.date))
+    .reduce((sum, entry) => sum.plus(entry.grossValue), D(0)))
+  return {
+    id: cash.accountId,
+    balance: cash.balance,
+    interestRatePercent: D(cash.ratePercent).toFixed(2),
+    accruedInterest: cash.accruedInterest,
+    interestThisTaxYear: total('INTEREST', date => taxYearForDate(date) === taxYearLabel),
+    totalInterest: total('INTEREST'),
+    totalTakenOut: total('CASH_WITHDRAWAL'),
+    portfolioPercent: ratioPercent(cash.balance, totalPortfolioValue)
+  }
+}
+
+function toCashMovements(entries: CashState['entries']) {
+  return entries.map(entry => cashMovement(entry.type, entry.date, entry.grossValue))
+    .filter((item): item is CashMovement => item !== null)
+}
+
+function cashInterestRate(settings: Record<string, string>) {
+  return settings.cash_interest_rate ?? DEFAULT_SETTINGS.cash_interest_rate
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function giaUnitsAtDate(portfolioId: number, accountId: number, date: string) {
@@ -560,6 +823,7 @@ function emptySnapshot(asOf: string): PortfolioSnapshot {
     todayChangePercent: '0.0000',
     isa: null,
     gia: null,
+    cash: null,
     market: null,
     potentialCgt: null,
     incomeTax: null,
@@ -574,10 +838,6 @@ function emptySnapshot(asOf: string): PortfolioSnapshot {
     taxRulesAssumed: false,
     refreshIntervalMs: 900000
   }
-}
-
-function DecimalMin(a: ReturnType<typeof D>, b: ReturnType<typeof D>) {
-  return a.lt(b) ? a : b
 }
 
 function DecimalMax(a: ReturnType<typeof D>, b: ReturnType<typeof D>) {

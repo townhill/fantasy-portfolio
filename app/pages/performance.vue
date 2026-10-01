@@ -11,7 +11,9 @@ const periodChange = computed(() => {
   const values = points.value ?? []
   if (values.length < 2) return { amount: '0', percent: '0' }
   const first = Number(values[0]?.total ?? 0)
-  const last = Number(values.at(-1)?.total ?? 0)
+  // Cash taken out to live on during the period is added back so it is not shown as a loss.
+  const takenOut = Number(values.at(-1)?.takenOut ?? 0) - Number(values[0]?.takenOut ?? 0)
+  const last = Number(values.at(-1)?.total ?? 0) + takenOut
   return { amount: String(last - first), percent: first ? String(((last - first) / first) * 100) : '0' }
 })
 </script>

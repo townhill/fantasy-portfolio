@@ -15,7 +15,7 @@ const { data, status, error, refresh } = await useFetch<SettingsResponse>('/api/
 const settings = reactive({
   default_start_date: '2026-08-28', initial_isa_amount: '20000.00', initial_gia_amount: '80000.00',
   bed_isa_enabled: 'true' as 'true' | 'false', manual_price_enabled: 'false' as 'true' | 'false',
-  manual_price_override: '', refresh_interval_minutes: '15'
+  manual_price_override: '', refresh_interval_minutes: '15', cash_interest_rate: '2.00'
 })
 const profile = reactive<TaxProfileInput>({
   taxYear: '2026/27', employmentIncome: '0.00', otherTaxableIncome: '0.00', otherDividendIncome: '0.00',
@@ -38,12 +38,17 @@ watch(data, value => {
 async function save() {
   saving.value = true
   try {
-    await rawFetch('/api/settings', { method: 'PUT', body: { settings, taxProfile: profile, taxRules: rules } })
+    await rawFetch('/api/settings', { method: 'PUT', body: { settings: numbersAsStrings(settings), taxProfile: numbersAsStrings(profile), taxRules: numbersAsStrings(rules) } })
     await refresh()
     toast.add({ title: 'Settings saved', description: 'New calculations will use the updated assumptions.', color: 'success' })
   } catch (cause) {
     toast.add({ title: 'Settings could not be saved', description: cause instanceof Error ? cause.message : 'Check the entered values.', color: 'error' })
   } finally { saving.value = false }
+}
+
+// Number inputs hand back numbers once edited, while the API validates decimal strings.
+function numbersAsStrings<T extends object>(record: T) {
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, typeof value === 'number' ? String(value) : value]))
 }
 </script>
 
@@ -63,6 +68,7 @@ async function save() {
             <UFormField label="Initial ISA amount"><UInput v-model="settings.initial_isa_amount" type="number" step="0.01" class="w-full" :disabled="data?.portfolio?.status === 'ACTIVE'" /></UFormField>
             <UFormField label="Initial GIA amount"><UInput v-model="settings.initial_gia_amount" type="number" step="0.01" class="w-full" :disabled="data?.portfolio?.status === 'ACTIVE'" /></UFormField>
             <UFormField label="Annual Bed & ISA strategy"><USelect v-model="settings.bed_isa_enabled" :items="[{ label: 'Enabled for planning', value: 'true' }, { label: 'Disabled', value: 'false' }]" class="w-full" /></UFormField>
+            <UFormField label="Cash interest rate" description="% a year, accrued daily and paid monthly"><UInput v-model="settings.cash_interest_rate" type="number" min="0" max="99.99" step="0.01" class="w-full" /></UFormField>
           </div>
           <div class="mt-5 rounded-lg border border-default bg-elevated/40 p-4 text-sm"><div class="grid grid-cols-2 gap-3"><div><p class="text-xs text-muted">Instrument</p><p class="mt-1 font-medium">VUAG.L</p></div><div><p class="text-xs text-muted">ISIN</p><p class="mt-1 font-medium">IE00BFMXXD54</p></div><div><p class="text-xs text-muted">Currency</p><p class="mt-1 font-medium">GBP</p></div><div><p class="text-xs text-muted">Class</p><p class="mt-1 font-medium">Accumulating</p></div></div></div>
           <UAlert v-if="data?.portfolio?.status === 'ACTIVE'" class="mt-4" color="neutral" variant="subtle" title="Opening acquisition is locked" description="Changing current market assumptions never rewrites the stored acquisition price or units." />

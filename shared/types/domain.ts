@@ -1,11 +1,16 @@
-export type AccountType = 'ISA' | 'GIA'
+export type InvestmentAccountType = 'ISA' | 'GIA'
+export type AccountType = InvestmentAccountType | 'CASH'
 
 export type TransactionType =
   | 'INITIAL_BUY'
   | 'GIA_SELL'
   | 'ISA_BUY'
+  | 'ISA_SELL'
   | 'BED_AND_ISA'
   | 'ERI'
+  | 'CASH_DEPOSIT'
+  | 'INTEREST'
+  | 'CASH_WITHDRAWAL'
   | 'TAX_PAYMENT'
   | 'ADJUSTMENT'
 
@@ -83,7 +88,7 @@ export interface IncomeTaxResult {
 
 export interface AccountSnapshot {
   id: number
-  type: AccountType
+  type: InvestmentAccountType
   value: string
   units: string
   averageAcquisitionPrice: string
@@ -107,6 +112,7 @@ export interface PortfolioSnapshot {
   todayChangePercent: string
   isa: AccountSnapshot | null
   gia: AccountSnapshot | null
+  cash: CashSnapshot | null
   market: MarketQuote | null
   potentialCgt: CgtResult | null
   incomeTax: IncomeTaxResult | null
@@ -122,12 +128,25 @@ export interface PortfolioSnapshot {
   refreshIntervalMs: number
 }
 
+export interface CashSnapshot {
+  id: number | null
+  balance: string
+  interestRatePercent: string
+  accruedInterest: string
+  interestThisTaxYear: string
+  totalInterest: string
+  totalTakenOut: string
+  portfolioPercent: string
+}
+
 export interface PerformancePoint {
   date: string
   price: string
   total: string
   isa: string
   gia: string
+  cash: string
+  takenOut: string
   historical: boolean
 }
 
@@ -163,12 +182,37 @@ export interface BedIsaPreview {
   cgt: CgtResult
 }
 
+export interface WithdrawalPreview {
+  date: string
+  account: InvestmentAccountType
+  price: string
+  accountValue: string
+  proceeds: string
+  unitsToSell: string
+  sellsEntireHolding: boolean
+  originalCostSold: string
+  eriAdjustmentSold: string
+  allocatedCost: string
+  gain: string
+  estimatedCgt: string
+  cgtAnnualExemptionRemaining: string | null
+  accountValueAfter: string
+  cashBalanceAfter: string
+  rulesAssumed: boolean
+  priceStale: boolean
+  manualPrice: boolean
+}
+
 export interface ProjectionPoint {
   year: number
   label: string
   portfolioValue: string
   isaValue: string
   giaValue: string
+  cashValue: string
+  withdrawn: string
+  cumulativeWithdrawn: string
+  shortfall: string
   estimatedCumulativeTax: string
   amountSheltered: string
   historical: boolean

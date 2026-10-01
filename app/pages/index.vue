@@ -155,7 +155,7 @@ onMounted(() => {
           <div>
             <div class="flex items-center gap-2 text-sm font-medium text-muted">
               Portfolio value
-              <InfoTip text="Current VUAG price multiplied by all units held across the ISA and GIA." />
+              <InfoTip text="Current VUAG price multiplied by all units held across the ISA and GIA, plus the cash account balance." />
             </div>
             <div class="numeric mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{{ formatGbp(portfolio.currentValue) }}</div>
             <div class="mt-3 flex flex-wrap items-center gap-3">
@@ -170,15 +170,15 @@ onMounted(() => {
           <div class="grid grid-cols-2 gap-x-5 sm:grid-cols-3">
             <MetricRow label="Initial investment" :value="formatGbp(portfolio.initialInvestment)" />
             <MetricRow label="Current value" :value="formatGbp(portfolio.currentValue)" />
-            <MetricRow label="Gain / loss" :value="formatGbp(portfolio.totalGainLoss)" :tone="Number(portfolio.totalGainLoss) >= 0 ? 'positive' : 'negative'" />
+            <MetricRow label="Cash taken out" :value="formatGbp(portfolio.cash?.totalTakenOut)" hint="Cash taken out of the portfolio to live on. It no longer counts in the current value but still counts towards the gain." />
+            <MetricRow label="Gain / loss" :value="formatGbp(portfolio.totalGainLoss)" :tone="Number(portfolio.totalGainLoss) >= 0 ? 'positive' : 'negative'" hint="Current value plus cash taken out, minus the initial investment." />
             <MetricRow label="Return" :value="formatPercent(portfolio.totalGainLossPercent)" :tone="Number(portfolio.totalGainLossPercent) >= 0 ? 'positive' : 'negative'" />
             <MetricRow label="Today" :value="formatGbp(portfolio.todayChange)" :tone="Number(portfolio.todayChange) >= 0 ? 'positive' : 'negative'" />
-            <MetricRow label="Today %" :value="formatPercent(portfolio.todayChangePercent)" :tone="Number(portfolio.todayChangePercent) >= 0 ? 'positive' : 'negative'" />
           </div>
         </div>
       </UCard>
 
-      <div class="mt-5 grid gap-5 xl:grid-cols-3">
+      <div class="mt-5 grid gap-5 md:grid-cols-2">
         <UCard v-if="portfolio.isa" :ui="{ body: 'p-5' }">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -212,6 +212,23 @@ onMounted(() => {
             <MetricRow label="Unrealised gain" :value="formatGbp(portfolio.gia.gainLoss)" :tone="Number(portfolio.gia.gainLoss) >= 0 ? 'positive' : 'negative'" />
             <MetricRow label="Potential CGT" :value="formatGbp(portfolio.unrealisedPotentialTax)" hint="A hypothetical estimate if the full GIA were disposed today. An unrealised gain is not itself a tax bill." />
           </div>
+        </UCard>
+
+        <UCard v-if="portfolio.cash" :ui="{ body: 'p-5' }">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wider text-muted">Cash account</p>
+              <p class="numeric mt-2 text-2xl font-semibold">{{ formatGbp(portfolio.cash.balance) }}</p>
+            </div>
+            <UBadge color="info" variant="subtle" icon="i-lucide-percent">{{ portfolio.cash.interestRatePercent }}% interest</UBadge>
+          </div>
+          <div class="mt-4">
+            <MetricRow label="Interest accrued this month" :value="formatGbp(portfolio.cash.accruedInterest)" hint="Interest accrues daily on the closing balance and is paid into the account on the last day of each month." />
+            <MetricRow :label="`Interest paid in ${portfolio.taxYear}`" :value="formatGbp(portfolio.cash.interestThisTaxYear)" />
+            <MetricRow label="Cash taken out to date" :value="formatGbp(portfolio.cash.totalTakenOut)" />
+            <MetricRow label="Portfolio share" :value="formatPercent(portfolio.cash.portfolioPercent)" />
+          </div>
+          <UButton class="mt-4" to="/withdrawals" color="neutral" variant="outline" size="sm" icon="i-lucide-hand-coins">Withdraw or take out cash</UButton>
         </UCard>
 
         <UCard :ui="{ body: 'p-5' }" class="border-primary/25">

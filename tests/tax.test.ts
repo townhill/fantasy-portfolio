@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateCgt } from '../server/services/tax/cgt'
+import { calculateCgt, calculateMarginalCgt } from '../server/services/tax/cgt'
 import { calculateReportableIncomeTax } from '../server/services/tax/income'
 import { adjustedCgtBaseCost, calculateEri } from '../server/services/tax/eri'
 import { rulesForTaxYear, taxYearForDate } from '../server/services/tax/rules'
@@ -33,6 +33,29 @@ describe('CGT engine', () => {
     })
     expect(result.netGainBeforeExemption).toBe('6000.00')
     expect(result.taxableGain).toBe('3000.00')
+  })
+})
+
+describe('marginal CGT for one disposal', () => {
+  const higherProfile = { ...basicProfile, employmentIncome: '40000.00' }
+
+  it('matches the full calculation when nothing else was realised in the year', () => {
+    expect(calculateMarginalCgt({ realisedGain: '20000', realisedGainsThisYear: '0', profile: higherProfile, rules }))
+      .toEqual(calculateCgt({ realisedGain: '20000', profile: higherProfile, rules }))
+  })
+
+  it('leaves earlier disposals their share of the exemption and basic-rate band', () => {
+    const result = calculateMarginalCgt({ realisedGain: '10000', realisedGainsThisYear: '10000', profile: higherProfile, rules })
+    expect(result.annualExemptionAvailable).toBe('0.00')
+    expect(result.annualExemptionUsed).toBe('0.00')
+    expect(result.basicRateGain).toBe('3270.00')
+    expect(result.higherRateGain).toBe('6730.00')
+    expect(result.estimatedCgt).toBe('2203.80')
+  })
+
+  it('gives a negative change when a loss offsets earlier gains', () => {
+    const result = calculateMarginalCgt({ realisedGain: '-2000', realisedGainsThisYear: '8000', profile: basicProfile, rules })
+    expect(result.estimatedCgt).toBe('-360.00')
   })
 })
 

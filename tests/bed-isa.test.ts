@@ -33,4 +33,14 @@ describe('Bed & ISA planner', () => {
     expect(result.availableIsaAllowance).toBe('0.00')
     expect(result.suggestedAmount).toBe('0.00')
   })
+
+  it('charges the extra CGT on top of gains already realised in the tax year', () => {
+    const result = planBedAndIsa({
+      date: '2026-08-28', price: '100', giaUnits: '1000', giaOriginalCost: '80000', giaEriAdjustment: '1000',
+      isaValue: '25000', realisedGainsThisYear: '10000', profile: { ...basicProfile, employmentIncome: '40000.00' }, rules
+    })
+    expect(result.estimatedGain).toBe('3800.00')
+    expect(result.cgtAnnualExemptionRemaining).toBe('0.00')
+    expect(result.estimatedCgt).toBe('715.80')
+  })
 })

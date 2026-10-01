@@ -7,6 +7,7 @@ const navigation = [
   { label: 'Dashboard', to: '/', icon: 'i-lucide-layout-dashboard' },
   { label: 'Performance', to: '/performance', icon: 'i-lucide-chart-no-axes-combined' },
   { label: 'Bed & ISA', to: '/bed-and-isa', icon: 'i-lucide-arrow-left-right' },
+  { label: 'Withdrawals', to: '/withdrawals', icon: 'i-lucide-hand-coins' },
   { label: 'Tax', to: '/tax', icon: 'i-lucide-landmark' },
   { label: 'Transactions', to: '/transactions', icon: 'i-lucide-receipt-text' },
   { label: 'Projection', to: '/projection', icon: 'i-lucide-telescope' },

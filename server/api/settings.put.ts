@@ -3,6 +3,7 @@ import { readBody } from 'h3'
 import { z } from 'zod'
 import { getDatabase } from '../database/client'
 import { appSetting, portfolio, taxProfile, taxYear } from '../database/schema'
+import { settleCashInterest } from '../services/portfolio'
 import { ensureApplicationDefaults } from '../services/settings'
 import { taxYearDates } from '../services/tax/rules'
 import { apiError, parseWithZod } from '../utils/http'
@@ -17,7 +18,8 @@ const schema = z.object({
     bed_isa_enabled: z.enum(['true', 'false']),
     manual_price_enabled: z.enum(['true', 'false']),
     manual_price_override: z.union([z.literal(''), z.string().regex(/^\d+(\.\d{1,6})?$/)]),
-    refresh_interval_minutes: z.string().regex(/^\d+$/).refine(value => Number(value) >= 5 && Number(value) <= 1440)
+    refresh_interval_minutes: z.string().regex(/^\d+$/).refine(value => Number(value) >= 5 && Number(value) <= 1440),
+    cash_interest_rate: z.string().regex(/^\d{1,2}(\.\d{1,2})?$/)
   }).partial(),
   taxProfile: z.object({
     taxYear: z.string().regex(/^\d{4}\/\d{2}$/),
@@ -53,6 +55,7 @@ export default defineEventHandler(async event => {
   try {
     await ensureApplicationDefaults()
     const input = parseWithZod(schema, await readBody(event))
+    if (input.settings.cash_interest_rate !== undefined) await settleCashInterest()
     const db = getDatabase()
     const now = new Date().toISOString()
     db.transaction(tx => {

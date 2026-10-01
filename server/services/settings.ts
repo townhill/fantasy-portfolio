@@ -15,7 +15,8 @@ export const DEFAULT_SETTINGS = {
   bed_isa_enabled: 'true',
   manual_price_enabled: 'false',
   manual_price_override: '',
-  refresh_interval_minutes: '15'
+  refresh_interval_minutes: '15',
+  cash_interest_rate: '2.00'
 } as const
 
 export const DEFAULT_TAX_PROFILE: TaxProfileInput = {

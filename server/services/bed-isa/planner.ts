@@ -1,6 +1,6 @@
 import type { BedIsaPreview, TaxProfileInput, TaxRules } from '../../../shared/types/domain'
 import { D, money, precise } from '../../utils/decimal'
-import { calculateCgt } from '../tax/cgt'
+import { calculateMarginalCgt } from '../tax/cgt'
 
 export function planBedAndIsa(input: {
   date: string
@@ -13,7 +13,7 @@ export function planBedAndIsa(input: {
   portfolioIsaAllowanceUsed?: string
   profile: TaxProfileInput
   rules: TaxRules
-  exemptionAlreadyUsed?: string
+  realisedGainsThisYear?: string
 }): BedIsaPreview {
   const giaValue = D(input.giaUnits).mul(input.price)
   const allowance = DecimalMax(
@@ -28,11 +28,11 @@ export function planBedAndIsa(input: {
   const adjustedBase = D(input.giaOriginalCost).plus(input.giaEriAdjustment)
   const allocatedCost = D(input.giaUnits).eq(0) ? D(0) : adjustedBase.mul(units).div(input.giaUnits)
   const gain = amount.minus(allocatedCost)
-  const cgt = calculateCgt({
+  const cgt = calculateMarginalCgt({
     realisedGain: money(gain),
+    realisedGainsThisYear: input.realisedGainsThisYear ?? '0',
     profile: input.profile,
-    rules: input.rules,
-    ...(input.exemptionAlreadyUsed === undefined ? {} : { exemptionAlreadyUsed: input.exemptionAlreadyUsed })
+    rules: input.rules
   })
 
   return {
